@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم جروبات واتساب</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+
+    <div class="container mx-auto p-6">
+        <header class="bg-white shadow-md rounded-lg p-6 mb-6 flex justify-between items-center">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-800">🌐 لوحة تحكم جروبات واتساب</h1>
+                <p class="text-gray-500 text-sm mt-1">إدارة ومتابعة الجروبات المربوطة بحسابك أونلاين</p>
+            </div>
+            <div id="connectionStatus" class="bg-yellow-100 text-yellow-800 px-4 py-2 rounded-full font-semibold text-sm">
+                جاري الاتصال...
+            </div>
+        </header>
+
+        <div id="qrSection" class="bg-white shadow-md rounded-lg p-8 text-center mb-6 hidden">
+            <h2 class="text-xl font-bold text-gray-700 mb-4">امسح الكود التالي من تطبيق واتساب لربط الجهاز</h2>
+            <div id="qrcode" class="flex justify-center mb-4"></div>
+            <p class="text-gray-500 text-sm">افتح واتساب ➡️ الأجهزة المرتبطة ➡️ اربط جهاز</p>
+        </div>
+
+        <div id="dashboardSection" class="hidden">
+            <div class="mb-6 flex justify-between items-center bg-white p-4 rounded-lg shadow-sm">
+                <input type="text" id="searchInput" placeholder="ابحث باسم الجروب..." 
+                    class="w-full p-3 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500">
+                <div id="stats" class="mr-4 bg-green-100 text-green-800 px-4 py-2 rounded-full font-semibold text-sm whitespace-nowrap">
+                    إجمالي الجروبات: 0
+                </div>
+            </div>
+
+            <div class="bg-white shadow-md rounded-lg overflow-hidden">
+                <table class="w-full text-right border-collapse">
+                    <thead class="bg-gray-200 text-gray-700 uppercase text-sm">
+                        <tr>
+                            <th class="p-4">#</th>
+                            <th class="p-4">اسم الجروب</th>
+                            <th class="p-4">عدد الأعضاء</th>
+                            <th class="p-4">معرف الجروب (ID)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="groupsTableBody" class="divide-y divide-gray-200">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let allGroupsData = [];
+
+        const statusBadge = document.getElementById('connectionStatus');
+        const qrSection = document.getElementById('qrSection');
+        const dashboardSection = document.getElementById('dashboardSection');
+        const qrContainer = document.getElementById('qrcode');
+
+        socket.on('status', (data) => {
+            if (data.status === 'connected') {
+                statusBadge.className = 'bg-green-100 text-green-800 px-4 py-2 rounded-full font-semibold text-sm';
+                statusBadge.innerText = '🟢 متصل الآن';
+                qrSection.classList.add('hidden');
+                dashboardSection.classList.remove('hidden');
+                fetchGroups();
+            } else {
+                statusBadge.className = 'bg-yellow-100 text-yellow-800 px-4 py-2 rounded-full font-semibold text-sm';
+                statusBadge.innerText = '🟡 في انتظار الربط...';
+            }
+        });
+
+        socket.on('qr', (qrText) => {
+            qrSection.classList.remove('hidden');
+            dashboardSection.classList.add('hidden');
+            qrContainer.innerHTML = '';
+            try {
+                let qr = qrcode(4, 'L');
+                qr.addData(qrText);
+                qr.make();
+                qrContainer.innerHTML = qr.createImgTag(5);
+            } catch (e) {
+                qrContainer.innerText = 'خطأ في توليد الكود';
+            }
+        });
+
+        async function fetchGroups() {
+            try {
+                const response = await fetch('/api/groups');
+                const data = await response.json();
+                if (data.success) {
+                    allGroupsData = data.groups;
+                    document.getElementById('stats').innerText = `إجمالي الجروبات: ${data.count}`;
+                    renderTable(allGroupsData);
+                }
+            } catch (error) {
+                console.error('خطأ في جلب البيانات:', error);
+            }
+        }
+
+        function renderTable(groups) {
+            const tbody = document.getElementById('groupsTableBody');
+            tbody.innerHTML = '';
+            if (groups.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-gray-500">مفيش جروبات متاحة</td></tr>`;
+                return;
+            }
+            groups.forEach((group, index) => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="p-4 text-gray-500">${index + 1}</td>
+                        <td class="p-4 font-semibold text-gray-800">${group.subject}</td>
+                        <td class="p-4"><span class="bg-blue-100 text-blue-800 px-2.5 py-1 rounded-full text-xs">${group.participantsCount} عضو</span></td>
+                        <td class="p-4 text-gray-400 text-sm font-mono">${group.id}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            renderTable(allGroupsData.filter(g => g.subject.toLowerCase().includes(term)));
+        });
+
+        socket.on('groups_updated', () => fetchGroups());
+    </script>
+</body>
+</html>
